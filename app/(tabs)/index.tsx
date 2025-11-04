@@ -1,8 +1,8 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import {
   View,
   Text,
-    Image,
+  Image,
   TouchableOpacity,
   TextInput,
   ScrollView,
@@ -12,10 +12,13 @@ import {
   ImageBackground,
   PanResponder,
   ActivityIndicator,
+  Alert,
+  Animated,
 } from 'react-native';
 import { useQuery, useMutation } from "convex/react";
 import { api } from "../../convex/_generated/api";
 import { Id } from "../../convex/_generated/dataModel";
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 type Theme = 'light' | 'dark';
 
@@ -25,29 +28,47 @@ const TodoApp = () => {
   const [newTodo, setNewTodo] = useState('');
   const [filter, setFilter] = useState<'all' | 'active' | 'completed'>('all');
   const [draggingId, setDraggingId] = useState<string | null>(null);
-  
+  const [isLoading, setIsLoading] = useState(false);
+  const [hoveredTodoId, setHoveredTodoId] = useState<string | null>(null);
+  const [hoveredCircleId, setHoveredCircleId] = useState<string | null>(null);
+
+
+  const animatedValue = useRef(new Animated.Value(0)).current;
+
   const isDesktop = screenWidth >= 768;
+
+
+  useEffect(() => {
+    loadTheme();
+  }, []);
+
   
-  React.useEffect(() => {
+  useEffect(() => {
     const subscription = Dimensions.addEventListener('change', ({ window }) => {
       setScreenWidth(window.width);
     });
     
     return () => subscription?.remove();
   }, []);
-   const [hoverStates, setHoverStates] = useState({
-    all: false,
-    acive: false,
-    completed: false,
-    itemsLeft:false,
-    clearText:false
-  });
 
-  const handleHover = (element:string, isHovering:boolean) => {
-    setHoverStates(prev => ({
-      ...prev,
-      [element]: isHovering
-    }));
+  
+  useEffect(() => {
+    Animated.timing(animatedValue, {
+      toValue: theme === 'dark' ? 0 : 1,
+      duration: 300,
+      useNativeDriver: false,
+    }).start();
+  }, [theme]);
+
+  const loadTheme = async () => {
+    try {
+      const savedTheme = await AsyncStorage.getItem('theme');
+      if (savedTheme) {
+        setTheme(savedTheme as Theme);
+      }
+    } catch (error) {
+      console.error('Failed to load theme:', error);
+    }
   };
 
   const todos = useQuery(api.todos.getTodos);
@@ -57,70 +78,144 @@ const TodoApp = () => {
   const clearCompleted = useMutation(api.todos.clearCompleted);
   const reorderTodos = useMutation(api.todos.reorderTodos);
 
+  
+  const backgroundColor = animatedValue.interpolate({
+    inputRange: [0, 1],
+    outputRange: ['#161722', '#fafafa']
+  });
+
+  const cardBgColor = animatedValue.interpolate({
+    inputRange: [0, 1],
+    outputRange: ['#25273c', '#ffffff']
+  });
+
+  const textColor = animatedValue.interpolate({
+    inputRange: [0, 1],
+    outputRange: ['#C8CBE7', '#494C6B']
+  });
+
+  const textSecondaryColor = animatedValue.interpolate({
+    inputRange: [0, 1],
+    outputRange: ['#777a92', '#9394a5']
+  });
+
+  const borderColor = animatedValue.interpolate({
+    inputRange: [0, 1],
+    outputRange: ['#393a4c', '#e4e5f1']
+  });
+
+  const completedTextColor = animatedValue.interpolate({
+    inputRange: [0, 1],
+    outputRange: ['#4d5066', '#d2d3db']
+  });
+
   const colors = theme === 'light' 
     ? {
         background: '#fafafa',
         cardBg: '#ffffff',
-        text: '#484b6a',
+        text: '#494C6B',
         textSecondary: '#9394a5',
         border: '#e4e5f1',
-        inputText: '#484b6a',
+        inputText: '#494C6B',
         placeholder: '#9394a5',
         completedText: '#d2d3db',
-        shadow: 'rgba(0,0,0,0.1)',
+        shadow: 'rgba(0,0,0,0.5)',
         filterActive: '#3a7bfd',
-        headerGradient: ['#57ddff', '#c058f3'],
       }
     : {
         background: '#161722',
         cardBg: '#25273c',
-        text: '#cacde8',
+        text: '#C8CBE7',
         textSecondary: '#777a92',
         border: '#393a4c',
-        inputText: '#cacde8',
+        inputText: '#C8CBE7',
         placeholder: '#777a92',
         completedText: '#4d5066',
-        shadow: 'rgba(0,0,0,0.3)',
+        shadow: 'rgba(0,0,0,0.7)',
         filterActive: '#3a7bfd',
-        headerGradient: ['#161722', '#161722'],
       };
 
-  const toggleTheme = () => {
-    setTheme(prev => prev === 'light' ? 'dark' : 'light');
+  const toggleTheme = async () => {
+    try {
+      const newTheme = theme === 'light' ? 'dark' : 'light';
+      setTheme(newTheme);
+      await AsyncStorage.setItem('theme', newTheme);
+    } catch (error) {
+      console.error('Failed to save theme:', error);
+      Alert.alert('Error', 'Failed to save theme preference');
+    }
   };
 
   const handleAddTodo = async () => {
-    if (newTodo.trim()) {
-      await addTodo({ text: newTodo });
+    if (!newTodo.trim()) {
+      Alert.alert('Error', 'Please enter a todo item');
+      return;
+    }
+
+    try {
+      setIsLoading(true);
+      await addTodo({ text: newTodo.trim() });
       setNewTodo('');
+    } catch (error) {
+      console.error('Failed to add todo:', error);
+      Alert.alert('Error', 'Failed to add todo. Please try again.');
+    } finally {
+      setIsLoading(false);
     }
   };
 
   const handleToggleTodo = async (id: Id<"todos">) => {
-    await toggleTodo({ id });
+    try {
+      await toggleTodo({ id });
+    } catch (error) {
+      console.error('Failed to toggle todo:', error);
+      Alert.alert('Error', 'Failed to update todo. Please try again.');
+    }
   };
 
   const handleDeleteTodo = async (id: Id<"todos">) => {
-    await deleteTodo({ id });
+    try {
+      await deleteTodo({ id });
+    } catch (error) {
+      console.error('Failed to delete todo:', error);
+      Alert.alert('Error', 'Failed to delete todo. Please try again.');
+    }
   };
 
   const handleClearCompleted = async () => {
-    await clearCompleted();
+    const completedCount = todos?.filter(t => t.completed).length || 0;
+    
+    if (completedCount === 0) {
+      Alert.alert('Info', 'No completed todos to clear');
+      return;
+    }
+
+    try {
+      await clearCompleted();
+    } catch (error) {
+      console.error('Failed to clear completed:', error);
+      Alert.alert('Error', 'Failed to clear completed todos. Please try again.');
+    }
   };
 
   const moveTodo = async (fromIndex: number, toIndex: number) => {
     if (!todos) return;
     
-    const reorderedTodos = [...todos];
-    const [movedTodo] = reorderedTodos.splice(fromIndex, 1);
-    reorderedTodos.splice(toIndex, 0, movedTodo);
-    
-    const updates = reorderedTodos.map((todo, index) => ({
-      id: todo._id,
-      order: index,
-    }));
-    
-    await reorderTodos({ updates });
+    try {
+      const reorderedTodos = [...todos];
+      const [movedTodo] = reorderedTodos.splice(fromIndex, 1);
+      reorderedTodos.splice(toIndex, 0, movedTodo);
+      
+      const updates = reorderedTodos.map((todo, index) => ({
+        id: todo._id,
+        order: index,
+      }));
+      
+      await reorderTodos({ updates });
+    } catch (error) {
+      console.error('Failed to reorder todos:', error);
+      Alert.alert('Error', 'Failed to reorder todos. Please try again.');
+    }
   };
 
   const filteredTodos = useMemo(() => {
@@ -162,42 +257,46 @@ const TodoApp = () => {
 
   if (todos === undefined) {
     return (
-      <View style={[styles.container, styles.loadingContainer, { backgroundColor: colors.background }]}>
+      <Animated.View style={[styles.container, styles.loadingContainer, { backgroundColor }]}>
         <ActivityIndicator size="large" color={colors.filterActive} />
-        <Text style={[styles.loadingText, { color: colors.text }]}>Loading todos...</Text>
-      </View>
+        <Animated.Text style={[styles.loadingText, { color: textColor }]}>Loading todos...</Animated.Text>
+      </Animated.View>
     );
   }
 
   return (
-    <View style={[styles.container, { backgroundColor: colors.background }]}>
+    <Animated.View style={[styles.container, { backgroundColor }]}>
       <StatusBar barStyle={theme === 'dark' ? 'light-content' : 'dark-content'} />
       
       <ScrollView 
         style={styles.scrollContainer}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
+        accessibilityLabel="Todo list scroll view"
       >
         <View style={styles.headerSection}>
           <ImageBackground 
             source={require('../../assets/images/header-img.png')}
             style={styles.headerBackground}
             resizeMode="cover"
+            accessibilityLabel="Header background image"
           >
-            <View style={[
-              styles.gradientOverlay,
-               styles.lightGradient 
-            ]}>
+            <View style={styles.gradientOverlay}>
               <View style={[StyleSheet.absoluteFillObject, styles.gradientStart]} />
               <View style={[StyleSheet.absoluteFillObject, styles.gradientEnd]} />
             </View>
             
             <View style={[styles.content, isDesktop && styles.contentDesktop, { width: isDesktop ? 540 : 327 }]}>
               <View style={styles.header}>
-                <Text style={styles.title}>T O D O</Text>
-                <TouchableOpacity onPress={toggleTheme} style={styles.themeButton}>
+                <Text style={styles.title} accessibilityRole="header">T O D O</Text>
+                <TouchableOpacity 
+                  onPress={toggleTheme} 
+                  style={styles.themeButton}
+                  accessibilityLabel={`Switch to ${theme === 'light' ? 'dark' : 'light'} theme`}
+                  accessibilityRole="button"
+                >
                   <Text style={styles.themeIcon}>
-                    {theme === 'light' ? <Image source={require('../../assets/images/dark-icon.png')} /> : <Image source={require('../../assets/images/light-icon.png')} />}
+                    {theme === 'light' ? <Image source={require('../../assets/images/dark-icon.png')} /> : <Image source={require('../../assets/images/light-icon.png')} /> }
                   </Text>
                 </TouchableOpacity>
               </View>
@@ -207,18 +306,16 @@ const TodoApp = () => {
 
         <View style={[styles.mainContent, isDesktop && styles.mainContentDesktop]}>
           
-          <View style={[
+          <Animated.View style={[
             styles.inputContainer, 
             isDesktop && styles.inputContainerDesktop,
             { 
-              backgroundColor: colors.cardBg,
+              backgroundColor: cardBgColor,
               shadowColor: colors.shadow,
               width: isDesktop ? 540 : 327
             }
           ]}>
-            <TouchableOpacity>
-              <Image source={require('../../assets/images/uncheckeds.png')} />
-            </TouchableOpacity>
+            <Animated.View style={[styles.checkCircleEmpty, { borderColor }]} />
             <TextInput
               style={[styles.input, { color: colors.inputText }]}
               placeholder="Create a new todo..."
@@ -227,165 +324,235 @@ const TodoApp = () => {
               onChangeText={setNewTodo}
               onSubmitEditing={handleAddTodo}
               returnKeyType="done"
+              accessibilityLabel="New todo input"
+              accessibilityHint="Enter your todo and press done to add"
             />
-          </View>
+            {isLoading && <ActivityIndicator size="small" color={colors.filterActive} />}
+          </Animated.View>
 
-          <View style={[
+          <Animated.View style={[
             styles.todoContainer, 
             isDesktop && styles.todoContainerDesktop,
             { 
-              backgroundColor: colors.cardBg,
+              backgroundColor: cardBgColor,
               shadowColor: colors.shadow,
               width: isDesktop ? 540 : 327
             }
           ]}>
             
-            <ScrollView 
-              style={styles.todoScrollView}
-              nestedScrollEnabled={true}
-            >
-              {filteredTodos.map((todo, index) => (
-                <View
-                  key={todo._id}
-                  {...(filter === 'all' ? createPanResponder(todo._id, index).panHandlers : {})}
-                  style={[
-                    styles.todoItem, 
-                    { 
-                      borderBottomColor: colors.border,
-                      opacity: draggingId === todo._id ? 0.5 : 1
-                    }
-                  ]}
-                >
-                  <TouchableOpacity 
-                    onPress={() => handleToggleTodo(todo._id)}
-                    style={styles.todoLeft}
+            {filteredTodos.length === 0 ? (
+              <View style={styles.emptyState}>
+                <Animated.Text style={[styles.emptyText, { color: textColor }]}>
+                  {filter === 'all' ? 'No todos yet!' : 
+                   filter === 'active' ? 'No active todos' : 
+                   'No completed todos'}
+                </Animated.Text>
+                <Animated.Text style={[styles.emptySubtext, { color: textSecondaryColor }]}>
+                  {filter === 'all' ? 'Create one to get started' : 
+                   filter === 'active' ? 'All todos are completed!' : 
+                   'Complete some todos to see them here'}
+                </Animated.Text>
+              </View>
+            ) : (
+              <ScrollView 
+                style={styles.todoScrollView}
+                nestedScrollEnabled={true}
+                accessibilityLabel="Todo items list"
+              >
+                {filteredTodos.map((todo, index) => (
+                  <Animated.View
+                    key={todo._id}
+                    {...(filter === 'all' ? createPanResponder(todo._id, index).panHandlers : {})}
+                    style={[
+                      styles.todoItem, 
+                      { 
+                        borderColor,
+                        opacity: draggingId === todo._id ? 0.5 : 1
+                      }
+                    ]}
+                    accessibilityLabel={`Todo: ${todo.text}, ${todo.completed ? 'completed' : 'active'}`}
                   >
-                    <View >
-                      {todo.completed ? <Image source={require('../../assets/images/checkmark.png')} /> : <Image source={require('../../assets/images/uncheckeds.png')} />}
+                    <View style={styles.todoLeft}>
+                      <TouchableOpacity
+                        onPress={() => handleToggleTodo(todo._id)}
+                        onPressIn={() => setHoveredCircleId(todo._id)}
+                        onPressOut={() => {
+                          setTimeout(() => setHoveredCircleId(null), 100);
+                        }}
+                        accessibilityRole="checkbox"
+                        accessibilityState={{ checked: todo.completed }}
+                        accessibilityLabel={`${todo.completed ? 'Mark as incomplete' : 'Mark as complete'}: ${todo.text}`}
+                      >
+                        {todo.completed ? (
+                          <Image source={require('../../assets/images/checkmark.png')} />
+                        ) : hoveredCircleId === todo._id ? (
+                          <Image source={require('../../assets/images/hover-circle.png')} />
+                        ) : (
+                          <Image source={require('../../assets/images/uncheckeds.png')} />
+                        )}
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={styles.todoTextContainer}
+                        onPress={() => {
+                          setHoveredTodoId(todo._id);
+                          setTimeout(() => setHoveredTodoId(null), 3000);
+                        }}
+                        onPressIn={() => setHoveredTodoId(todo._id)}
+                      >
+                        <Animated.Text style={[
+                          styles.todoText,
+                          { color: todo.completed ? completedTextColor : textColor },
+                          todo.completed && styles.completedText
+                        ]}>
+                          {todo.text}
+                        </Animated.Text>
+                      </TouchableOpacity>
                     </View>
-                    <Text style={[
-                      styles.todoText,
-                      { color: todo.completed ? colors.completedText : colors.text },
-                      todo.completed && styles.completedText
-                    ]}>
-                      {todo.text}
-                    </Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity 
-                    onPress={() => handleDeleteTodo(todo._id)}
-                    style={styles.deleteButton}
-                  >
-                    <Text style={styles.deleteIcon}>✕</Text>
-                  </TouchableOpacity>
-                </View>
-              ))}
-            </ScrollView>
+                    {hoveredTodoId === todo._id && (
+                      <TouchableOpacity 
+                        onPress={() => {
+                          handleDeleteTodo(todo._id);
+                          setHoveredTodoId(null);
+                        }}
+                        style={styles.deleteButton}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Delete todo: ${todo.text}`}
+                      >
+                        <Text style={styles.deleteIcon}>✕</Text>
+                      </TouchableOpacity>
+                    )}
+                  </Animated.View>
+                ))}
+              </ScrollView>
+            )}
 
-            <View style={[styles.footer, { borderTopColor: colors.border }]}>
-              <Text onPressIn={()=>handleHover('itemsLeft',true)}  onPressOut={() => handleHover('itemsLeft',false)} style={[styles.itemsLeft, hoverStates && styles.hoverText, { color: colors.textSecondary }]}>
+            <Animated.View style={[styles.footer, { borderColor }]}>
+              <Animated.Text 
+                style={[styles.itemsLeft, { color: textSecondaryColor }]}
+                accessibilityLabel={`${activeTodosCount} items left`}
+              >
                 {activeTodosCount} items left
-              </Text>
+              </Animated.Text>
               
               {isDesktop && (
                 <View style={styles.filterContainerDesktop}>
-                  <TouchableOpacity onPress={() =>{setFilter('all'); handleHover('all',true) }}
-                    onPressOut={()=>handleHover('all',false)}
-                    
-                    >
-                    <Text style={[
+                  <TouchableOpacity 
+                    onPress={() => setFilter('all')}
+                    accessibilityRole="button"
+                    accessibilityLabel="Show all todos"
+                    accessibilityState={{ selected: filter === 'all' }}
+                  >
+                    <Animated.Text style={[
                       styles.filterText, 
-                      hoverStates && styles.hoverText,
-                      { color: colors.textSecondary },
+                      { color: textSecondaryColor },
                       filter === 'all' && [styles.activeFilter, { color: colors.filterActive }]
                     ]}>
                       All
-                    </Text>
+                    </Animated.Text>
                   </TouchableOpacity>
-                  <TouchableOpacity onPress={() => {setFilter('active') }}
-                    onPressIn={() => handleHover('active',true)}
-                    onPressOut={() => handleHover('active',false)}
-                    >
-                    <Text style={[
-                      styles.filterText,
-                      hoverStates && styles.hoverText, 
-                      { color: colors.textSecondary },
+                  <TouchableOpacity 
+                    onPress={() => setFilter('active')}
+                    accessibilityRole="button"
+                    accessibilityLabel="Show active todos"
+                    accessibilityState={{ selected: filter === 'active' }}
+                  >
+                    <Animated.Text style={[
+                      styles.filterText, 
+                      { color: textSecondaryColor },
                       filter === 'active' && [styles.activeFilter, { color: colors.filterActive }]
                     ]}>
                       Active
-                    </Text>
+                    </Animated.Text>
                   </TouchableOpacity>
-                  <TouchableOpacity onPress={() => {setFilter('completed')}}
-                    onPressIn={() =>  handleHover('completed', true)}
-                    onPressOut={() => handleHover('completed',false)}
-                    >
-                    <Text style={[
-                      styles.filterText,
-                      hoverStates && styles.hoverText, 
-                      { color: colors.textSecondary },
+                  <TouchableOpacity 
+                    onPress={() => setFilter('completed')}
+                    accessibilityRole="button"
+                    accessibilityLabel="Show completed todos"
+                    accessibilityState={{ selected: filter === 'completed' }}
+                  >
+                    <Animated.Text style={[
+                      styles.filterText, 
+                      { color: textSecondaryColor },
                       filter === 'completed' && [styles.activeFilter, { color: colors.filterActive }]
                     ]}>
                       Completed
-                    </Text>
+                    </Animated.Text>
                   </TouchableOpacity>
                 </View>
               )}
 
-              <TouchableOpacity onPress={handleClearCompleted}
-                onPressIn={() => handleHover('clearText',true)}
-                onPressOut={() => handleHover('clearText', false)}
-                >
-                <Text style={[styles.clearText, hoverStates && styles.hoverText, { color: colors.textSecondary }]}>
+              <TouchableOpacity 
+                onPress={handleClearCompleted}
+                accessibilityRole="button"
+                accessibilityLabel="Clear completed todos"
+              >
+                <Animated.Text style={[styles.clearText, { color: textSecondaryColor }]}>
                   Clear Completed
-                </Text>
+                </Animated.Text>
               </TouchableOpacity>
-            </View>
-          </View>
+            </Animated.View>
+          </Animated.View>
 
           {!isDesktop && (
-            <View style={[
+            <Animated.View style={[
               styles.filterContainerMobile,
               { 
-                backgroundColor: colors.cardBg,
+                backgroundColor: cardBgColor,
                 shadowColor: colors.shadow,
                 width: isDesktop ? 540 : 327
               }
             ]}>
-              <TouchableOpacity onPress={() => setFilter('all')}>
-                <Text style={[
+              <TouchableOpacity 
+                onPress={() => setFilter('all')}
+                accessibilityRole="button"
+                accessibilityLabel="Show all todos"
+                accessibilityState={{ selected: filter === 'all' }}
+              >
+                <Animated.Text style={[
                   styles.filterText, 
-                  { color: colors.textSecondary },
+                  { color: textSecondaryColor },
                   filter === 'all' && [styles.activeFilter, { color: colors.filterActive }]
                 ]}>
                   All
-                </Text>
+                </Animated.Text>
               </TouchableOpacity>
-              <TouchableOpacity onPress={() => setFilter('active')}>
-                <Text style={[
+              <TouchableOpacity 
+                onPress={() => setFilter('active')}
+                accessibilityRole="button"
+                accessibilityLabel="Show active todos"
+                accessibilityState={{ selected: filter === 'active' }}
+              >
+                <Animated.Text style={[
                   styles.filterText, 
-                  { color: colors.textSecondary },
+                  { color: textSecondaryColor },
                   filter === 'active' && [styles.activeFilter, { color: colors.filterActive }]
                 ]}>
                   Active
-                </Text>
+                </Animated.Text>
               </TouchableOpacity>
-              <TouchableOpacity onPress={() => setFilter('completed')}>
-                <Text style={[
+              <TouchableOpacity 
+                onPress={() => setFilter('completed')}
+                accessibilityRole="button"
+                accessibilityLabel="Show completed todos"
+                accessibilityState={{ selected: filter === 'completed' }}
+              >
+                <Animated.Text style={[
                   styles.filterText, 
-                  { color: colors.textSecondary },
+                  { color: textSecondaryColor },
                   filter === 'completed' && [styles.activeFilter, { color: colors.filterActive }]
                 ]}>
                   Completed
-                </Text>
+                </Animated.Text>
               </TouchableOpacity>
-            </View>
+            </Animated.View>
           )}
 
-          <Text style={[styles.hintText, { color: colors.textSecondary }]}>
+          <Animated.Text style={[styles.hintText, { color: textSecondaryColor }]}>
             Drag and drop to reorder list
-          </Text>
+          </Animated.Text>
         </View>
       </ScrollView>
-    </View>
+    </Animated.View>
   );
 };
 
@@ -400,7 +567,7 @@ const styles = StyleSheet.create({
   loadingText: {
     marginTop: 16,
     fontSize: 16,
-    fontFamily:'SpaceMono'
+    fontFamily: 'SpaceMono'
   },
   scrollContainer: {
     flex: 1,
@@ -420,8 +587,6 @@ const styles = StyleSheet.create({
   gradientOverlay: {
     ...StyleSheet.absoluteFillObject,
   },
-  lightGradient: {},
- 
   gradientStart: {
     backgroundColor: '#5596FF',
     opacity: 0.7,
@@ -455,12 +620,6 @@ const styles = StyleSheet.create({
     width: '100%',
     alignItems: 'center',
   },
-  headerDesktop:{
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignSelf:'center',
-    width:327
-  },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -469,9 +628,9 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 32,
     fontWeight: 'bold',
-    fontFamily:'SpaceMono',
     letterSpacing: 12,
     color: '#ffffff',
+    fontFamily: 'SpaceMono'
   },
   themeButton: {
     padding: 8,
@@ -500,7 +659,13 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 16,
     marginLeft: 12,
-    fontFamily:'SpaceMono',
+    fontFamily: 'SpaceMono'
+  },
+  checkCircleEmpty: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    borderWidth: 1,
   },
   checkCircle: {
     width: 24,
@@ -511,19 +676,20 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   checkedCircle: {
-    borderColor: '#c058f3',
+    backgroundColor: '#5E93F5',
+    borderColor: '#5E93F5',
   },
   checkmark: {
-    color: 'white',
+    color: '#ffffff',
     fontSize: 14,
     fontWeight: 'bold',
   },
   todoContainer: {
     borderRadius: 5,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 3,
+    shadowOffset: { width: 10, height: 7 },
+    shadowOpacity: 0.5,
+    shadowRadius: 12,
+    elevation: 12,
     marginBottom: 16,
   },
   todoContainerDesktop: {
@@ -531,6 +697,23 @@ const styles = StyleSheet.create({
   },
   todoScrollView: {
     maxHeight: 400,
+  },
+  emptyState: {
+    padding: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  emptyText: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    marginBottom: 8,
+    textAlign: 'center',
+    fontFamily: 'SpaceMono'
+  },
+  emptySubtext: {
+    fontSize: 14,
+    textAlign: 'center',
+    fontFamily: 'SpaceMono'
   },
   todoItem: {
     flexDirection: 'row',
@@ -544,14 +727,17 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     flex: 1,
   },
-  todoText: {
+  todoTextContainer: {
     flex: 1,
-    fontSize: 16,
     marginLeft: 12,
-    fontFamily:'SpaceMono',
+  },
+  todoText: {
+    fontSize: 16,
+    fontFamily: 'SpaceMono'
   },
   completedText: {
     textDecorationLine: 'line-through',
+    fontFamily: 'SpaceMono'
   },
   deleteButton: {
     padding: 5,
@@ -571,7 +757,7 @@ const styles = StyleSheet.create({
   itemsLeft: {
     fontSize: 14,
     fontWeight: '500',
-    fontFamily:'SpaceMono',
+    fontFamily: 'SpaceMono'
   },
   filterContainerDesktop: {
     flexDirection: 'row',
@@ -596,26 +782,22 @@ const styles = StyleSheet.create({
   filterText: {
     fontSize: 14,
     fontWeight: 'bold',
-    fontFamily:'SpaceMono',
+    fontFamily: 'SpaceMono'
   },
-
   activeFilter: {
     fontWeight: 'bold',
-    fontFamily:'SpaceMono',
+    fontFamily: 'SpaceMono'
   },
   clearText: {
     fontSize: 14,
     fontWeight: '500',
-    fontFamily:'SpaceMono',
-  },
-  hoverText: {
-   color: 'white'
+    fontFamily: 'SpaceMono'
   },
   hintText: {
     textAlign: 'center',
     fontSize: 14,
     marginTop: 8,
-    fontFamily:'SpaceMono',
+    fontFamily: 'SpaceMono'
   },
 });
 
