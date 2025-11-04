@@ -17,16 +17,24 @@ import { useQuery, useMutation } from "convex/react";
 import { api } from "../../convex/_generated/api";
 import { Id } from "../../convex/_generated/dataModel";
 
-const { width } = Dimensions.get('window');
-const isDesktop = width >= 768;
-
 type Theme = 'light' | 'dark';
 
 const TodoApp = () => {
+  const [screenWidth, setScreenWidth] = useState(Dimensions.get('window').width);
   const [theme, setTheme] = useState<Theme>('dark');
   const [newTodo, setNewTodo] = useState('');
   const [filter, setFilter] = useState<'all' | 'active' | 'completed'>('all');
   const [draggingId, setDraggingId] = useState<string | null>(null);
+  
+  const isDesktop = screenWidth >= 768;
+  
+  React.useEffect(() => {
+    const subscription = Dimensions.addEventListener('change', ({ window }) => {
+      setScreenWidth(window.width);
+    });
+    
+    return () => subscription?.remove();
+  }, []);
    const [hoverStates, setHoverStates] = useState({
     all: false,
     acive: false,
@@ -178,17 +186,13 @@ const TodoApp = () => {
           >
             <View style={[
               styles.gradientOverlay,
-              theme === 'light' ? styles.lightGradient : styles.darkOverlay
+               styles.lightGradient 
             ]}>
-              {theme === 'light' && (
-                <>
-                  <View style={[StyleSheet.absoluteFillObject, styles.gradientTop]} />
-                  <View style={[StyleSheet.absoluteFillObject, styles.gradientBottom]} />
-                </>
-              )}
+              <View style={[StyleSheet.absoluteFillObject, styles.gradientStart]} />
+              <View style={[StyleSheet.absoluteFillObject, styles.gradientEnd]} />
             </View>
             
-            <View style={[styles.content, isDesktop && styles.contentDesktop]}>
+            <View style={[styles.content, isDesktop && styles.contentDesktop, { width: isDesktop ? 540 : 327 }]}>
               <View style={styles.header}>
                 <Text style={styles.title}>T O D O</Text>
                 <TouchableOpacity onPress={toggleTheme} style={styles.themeButton}>
@@ -208,7 +212,8 @@ const TodoApp = () => {
             isDesktop && styles.inputContainerDesktop,
             { 
               backgroundColor: colors.cardBg,
-              shadowColor: colors.shadow
+              shadowColor: colors.shadow,
+              width: isDesktop ? 540 : 327
             }
           ]}>
             <TouchableOpacity>
@@ -230,7 +235,8 @@ const TodoApp = () => {
             isDesktop && styles.todoContainerDesktop,
             { 
               backgroundColor: colors.cardBg,
-              shadowColor: colors.shadow
+              shadowColor: colors.shadow,
+              width: isDesktop ? 540 : 327
             }
           ]}>
             
@@ -340,7 +346,8 @@ const TodoApp = () => {
               styles.filterContainerMobile,
               { 
                 backgroundColor: colors.cardBg,
-                shadowColor: colors.shadow
+                shadowColor: colors.shadow,
+                width: isDesktop ? 540 : 327
               }
             ]}>
               <TouchableOpacity onPress={() => setFilter('all')}>
@@ -414,30 +421,27 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
   },
   lightGradient: {},
-  darkOverlay: {
-    backgroundColor: 'rgba(22, 23, 34, 0.8)',
+ 
+  gradientStart: {
+    backgroundColor: '#5596FF',
+    opacity: 0.7,
   },
-  gradientTop: {
-    backgroundColor: '#57ddff',
-    opacity: 0.6,
-  },
-  gradientBottom: {
-    backgroundColor: '#c058f3',
-    opacity: 0.6,
+  gradientEnd: {
+    backgroundColor: '#AC2DEB',
+    opacity: 0.5,
   },
   content: {
     flex: 1,
-    paddingHorizontal: 24,
+    paddingHorizontal: 0,
     paddingTop: 70,
-    maxWidth: 327,
-    alignSelf: 'center'
+    alignSelf: 'center',
+    justifyContent: 'space-between'
   },
   contentDesktop: {
-    paddingHorizontal: 120,
+    paddingHorizontal: 0,
     paddingTop: 80,
     alignSelf: 'center',
-    width: '100%',
-    maxWidth: 540,
+    justifyContent: 'space-between',
   },
   mainContent: {
     paddingHorizontal: 24,
@@ -451,10 +455,16 @@ const styles = StyleSheet.create({
     width: '100%',
     alignItems: 'center',
   },
+  headerDesktop:{
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignSelf:'center',
+    width:327
+  },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
+    width: '100%',
   },
   title: {
     fontSize: 32,
@@ -480,15 +490,11 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 8,
     elevation: 3,
-    width: '100%',
-    maxWidth: 327,
     alignSelf: 'center'
   },
   inputContainerDesktop: {
     padding: 24,
     marginBottom: 28,
-    width: '100%',
-    maxWidth: 540,
   },
   input: {
     flex: 1,
@@ -519,13 +525,9 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 3,
     marginBottom: 16,
-    width: '100%',
-    maxWidth: 327
   },
   todoContainerDesktop: {
     marginBottom: 24,
-    width: '100%',
-    maxWidth: 540,
   },
   todoScrollView: {
     maxHeight: 400,
@@ -589,8 +591,6 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 8,
     elevation: 3,
-    width: '100%',
-    maxWidth: 327,
     marginTop: 16,
   },
   filterText: {
